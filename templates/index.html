@@ -1,0 +1,243 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Visualization Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            transition: all 0.3s;
+        }
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .sidebar {
+            background: white;
+            padding: 20px;
+            height: calc(100vh - 40px);
+            position: sticky;
+            top: 20px;
+            transition: background 0.3s;
+        }
+        #chartContainer {
+            background: white;
+            padding: 20px;
+            transition: background 0.3s;
+        }
+        .editable:hover {
+            background: #f8f9fa;
+            cursor: pointer;
+        }
+        /* Dark Mode */
+        body.dark-mode {
+            background: linear-gradient(135deg, #2c3e50 0%, #4b6584 100%);
+            color: #ffffff;
+        }
+        .dark-mode .sidebar,
+        .dark-mode #chartContainer,
+        .dark-mode .card {
+            background: #34495e;
+            color: #ffffff;
+        }
+        .dark-mode .editable:hover {
+            background: #465c71;
+        }
+        .btn-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <button class="btn btn-secondary btn-toggle" id="themeToggle">Toggle Dark Mode</button>
+    <div class="dashboard-container">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3">
+                <div class="card sidebar">
+                    <h4 class="mb-4">Controls</h4>
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <input type="file" class="form-control" id="fileInput" name="file" accept=".csv,.xlsx,.json">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 mb-3">Upload</button>
+                    </form>
+                    
+                    <select class="form-select mb-3" id="graphType">
+                        <option value="bar">Bar Chart</option>
+                        <option value="line">Line Chart</option>
+                        <option value="pie">Pie Chart</option>
+                        <option value="scatter">Scatter Chart</option>
+                    </select>
+                    
+                    <select class="form-select mb-3" id="xAxis"></select>
+                    <select class="form-select mb-3" id="yAxis"></select>
+                    
+                    <select class="form-select mb-3" id="fontFamily">
+                        <option value="Roboto">Roboto</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Times New Roman">Times New Roman</option>
+                    </select>
+                    
+                    <input type="range" class="form-range mb-3" id="fontSize" min="10" max="24" value="14">
+                    
+                    <select class="form-select mb-3" id="colorScheme">
+                        <option value="vivid">Vivid Theme</option>
+                        <option value="pastel">Pastel Theme</option>
+                        <option value="dark">Dark Theme</option>
+                        <option value="ocean">Ocean Theme</option>
+                        <option value="forest">Forest Theme</option>
+                    </select>
+                    
+                    <button class="btn btn-success w-100" id="exportBtn">Export as PNG</button>
+                </div>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-9">
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h2 class="editable" id="title" contenteditable="true">My Dashboard</h2>
+                        <p class="editable" id="description" contenteditable="true">Interactive data visualization dashboard</p>
+                    </div>
+                </div>
+                
+                <div class="card" id="chartContainer">
+                    <canvas id="myChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script>
+        let chart;
+        let currentData = [];
+
+        // Handle file upload
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const response = await fetch('/', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            
+            if (result.error) {
+                alert(result.error);
+                return;
+            }
+
+            currentData = result.data;
+            populateSelects(result);
+            updateChart();
+        });
+
+        // Populate axis selectors
+        function populateSelects(data) {
+            const xAxis = document.getElementById('xAxis');
+            const yAxis = document.getElementById('yAxis');
+            
+            xAxis.innerHTML = data.category_cols.map(col => `<option value="${col}">${col}</option>`).join('');
+            yAxis.innerHTML = data.numeric_cols.map(col => `<option value="${col}">${col}</option>`).join('');
+        }
+
+        // Update chart
+        function updateChart() {
+            const ctx = document.getElementById('myChart').getContext('2d');
+            const graphType = document.getElementById('graphType').value;
+            const xAxis = document.getElementById('xAxis').value;
+            const yAxis = document.getElementById('yAxis').value;
+            const colorScheme = document.getElementById('colorScheme').value;
+
+            const colorThemes = {
+                vivid: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0'],
+                pastel: ['#FFB1C1', '#9ADFFD', '#FFE6AC', '#D4A5A5'],
+                dark: ['#4B5EAA', '#2D8646', '#AA4B5E', '#6D8299'],
+                ocean: ['#1E90FF', '#00CED1', '#4682B4', '#87CEEB'],
+                forest: ['#228B22', '#8FBC8F', '#006400', '#9ACD32']
+            };
+
+            if (chart) chart.destroy();
+
+            chart = new Chart(ctx, {
+                type: graphType,
+                data: {
+                    labels: currentData.map(row => row[xAxis]),
+                    datasets: [{
+                        label: yAxis,
+                        data: currentData.map(row => row[yAxis]),
+                        backgroundColor: graphType === 'pie' ? colorThemes[colorScheme] : colorThemes[colorScheme][0],
+                        borderColor: colorThemes[colorScheme][0],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'top' },
+                        title: { display: true, text: document.getElementById('title').textContent }
+                    }
+                }
+            });
+
+            // Apply font styling
+            const fontFamily = document.getElementById('fontFamily').value;
+            const fontSize = document.getElementById('fontSize').value;
+            chart.options.font = { family: fontFamily, size: parseInt(fontSize) };
+            chart.update();
+        }
+
+        // Event listeners for real-time updates
+        ['graphType', 'xAxis', 'yAxis', 'fontFamily', 'fontSize', 'colorScheme'].forEach(id => {
+            document.getElementById(id).addEventListener('change', updateChart);
+        });
+
+        // Export to PNG
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            html2canvas(document.querySelector('#chartContainer')).then(canvas => {
+                const link = document.createElement('a');
+                link.download = 'dashboard.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        });
+
+        // Dark/Light Mode Toggle
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            document.getElementById('themeToggle').textContent = isDark ? 'Toggle Light Mode' : 'Toggle Dark Mode';
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        });
+
+        // Load saved theme preference
+        if (localStorage.getItem('theme') === 'dark') {
+            document.body.classList.add('dark-mode');
+            document.getElementById('themeToggle').textContent = 'Toggle Light Mode';
+        }
+    </script>
+</body>
+</html>
